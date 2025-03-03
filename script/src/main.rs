@@ -35,6 +35,9 @@ struct Args {
     #[clap(long)]
     input: Option<Vec<u8>>,
 
+    #[clap(long, default_value = "0")]
+    step: u8,
+
     #[clap(long, short, default_value = "./sp1-proof.bin")]
     sp1_output_path: String,
 
@@ -63,7 +66,7 @@ fn main() {
     let input = if let Some(input) = args.input {
         bincode::deserialize(&input).unwrap()
     } else {
-        create_test_input()
+        create_test_input(args.step)
     };
 
     // let bytes = bincode::serialize(&input).unwrap();
@@ -139,7 +142,7 @@ fn main() {
     }
 }
 
-fn create_test_input() -> ExecutionInput {
+fn create_test_input(step: u8) -> ExecutionInput {
     let kp_sender_bytes: Vec<u8> =
         serde_json::from_slice(include_bytes!("../../onchain/tests/keypairSender.json")).unwrap();
     let kp_sender = Keypair::from_bytes(&kp_sender_bytes).unwrap();
@@ -151,7 +154,11 @@ fn create_test_input() -> ExecutionInput {
     let pk_sender = kp_sender.pubkey();
 
     let counter_program_id = Keypair::new().pubkey();
-    let pk_counter = Keypair::new().pubkey();
+
+    let kp_account_bytes: Vec<u8> =
+        serde_json::from_slice(include_bytes!("../../onchain/tests/keypairAccount.json")).unwrap();
+    let kp_account = Keypair::from_bytes(&kp_account_bytes).unwrap();
+    let pk_counter = kp_account.pubkey();
 
     let path = "../counter-program/counter_program.so";
     let mut file = File::open(path).expect("file open failed");
@@ -171,70 +178,138 @@ fn create_test_input() -> ExecutionInput {
     program_account.data_as_mut_slice()[LoaderV4State::program_data_offset()..]
         .copy_from_slice(&elf_bytes);
 
-    ExecutionInput {
-        accounts: RollupState(vec![
-            (
-                pk_sender,
-                Account {
-                    lamports: 0,
-                    data: vec![],
-                    owner: system_program::id(),
-                    executable: false,
-                    rent_epoch: 0,
-                }
-                .into(),
-            ),
-            (
-                pk_receiver,
-                Account {
-                    lamports: 0,
-                    data: vec![],
-                    owner: system_program::id(),
-                    executable: false,
-                    rent_epoch: 0,
-                }
-                .into(),
-            ),
-            (counter_program_id, program_account),
-            (
-                pk_counter,
-                Account {
-                    lamports: 100000,
-                    data: vec![0, 0, 0, 0],
-                    owner: counter_program_id,
-                    executable: false,
-                    rent_epoch: 0,
-                }
-                .into(),
-            ),
-        ]),
-        txs: vec![
-            Transaction::new_signed_with_payer(
-                &[system_instruction::transfer(
-                    &pk_sender,
-                    &pk_receiver,
-                    LAMPORTS_PER_SOL,
-                )],
-                Some(&pk_sender),
-                &[&kp_sender],
-                Hash::new_from_array([7; 32]),
-            ),
-            Transaction::new_signed_with_payer(
-                &[Instruction {
-                    program_id: counter_program_id,
-                    accounts: vec![AccountMeta::new(pk_counter, false)],
-                    data: vec![],
-                }],
-                Some(&pk_sender),
-                &[&kp_sender],
-                Hash::new_from_array([7; 32]),
-            ),
-        ],
-        ramp_txs: vec![RampTx {
-            is_onramp: true,
-            user: pk_sender,
-            amount: 10 * LAMPORTS_PER_SOL,
-        }],
+    if step == 0 {
+        ExecutionInput {
+            accounts: RollupState(vec![
+                (
+                    pk_sender,
+                    Account {
+                        lamports: 0,
+                        data: vec![],
+                        owner: system_program::id(),
+                        executable: false,
+                        rent_epoch: 0,
+                    }
+                    .into(),
+                ),
+                (
+                    pk_receiver,
+                    Account {
+                        lamports: 0,
+                        data: vec![],
+                        owner: system_program::id(),
+                        executable: false,
+                        rent_epoch: 0,
+                    }
+                    .into(),
+                ),
+                (counter_program_id, program_account),
+                (
+                    pk_counter,
+                    Account {
+                        lamports: 100000,
+                        data: vec![0, 0, 0, 0],
+                        owner: counter_program_id,
+                        executable: false,
+                        rent_epoch: 0,
+                    }
+                    .into(),
+                ),
+            ]),
+            txs: vec![
+                Transaction::new_signed_with_payer(
+                    &[system_instruction::transfer(
+                        &pk_sender,
+                        &pk_receiver,
+                        LAMPORTS_PER_SOL / 2,
+                    )],
+                    Some(&pk_sender),
+                    &[&kp_sender],
+                    Hash::new_from_array([7; 32]),
+                ),
+                Transaction::new_signed_with_payer(
+                    &[Instruction {
+                        program_id: counter_program_id,
+                        accounts: vec![AccountMeta::new(pk_counter, false)],
+                        data: vec![],
+                    }],
+                    Some(&pk_sender),
+                    &[&kp_sender],
+                    Hash::new_from_array([7; 32]),
+                ),
+            ],
+            ramp_txs: vec![RampTx {
+                is_onramp: true,
+                user: pk_sender,
+                amount: LAMPORTS_PER_SOL,
+            }],
+        }
+    } else {
+        ExecutionInput {
+            accounts: RollupState(vec![
+                (
+                    pk_sender,
+                    Account {
+                        lamports: LAMPORTS_PER_SOL / 2,
+                        data: vec![],
+                        owner: system_program::id(),
+                        executable: false,
+                        rent_epoch: 0,
+                    }
+                    .into(),
+                ),
+                (
+                    pk_receiver,
+                    Account {
+                        lamports: LAMPORTS_PER_SOL / 2,
+                        data: vec![],
+                        owner: system_program::id(),
+                        executable: false,
+                        rent_epoch: 0,
+                    }
+                    .into(),
+                ),
+                (counter_program_id, program_account),
+                (
+                    pk_counter,
+                    Account {
+                        lamports: 100000,
+                        data: vec![0, 0, 0, 0],
+                        owner: counter_program_id,
+                        executable: false,
+                        rent_epoch: 0,
+                    }
+                    .into(),
+                ),
+            ]),
+            txs: vec![
+                Transaction::new_signed_with_payer(
+                    &[system_instruction::transfer(
+                        &pk_sender,
+                        &pk_receiver,
+                        LAMPORTS_PER_SOL,
+                    )],
+                    Some(&pk_sender),
+                    &[&kp_sender],
+                    Hash::new_from_array([7; 32]),
+                ),
+                Transaction::new_signed_with_payer(
+                    &[Instruction {
+                        program_id: counter_program_id,
+                        accounts: vec![AccountMeta::new(pk_counter, false)],
+                        data: vec![],
+                    }],
+                    Some(&pk_sender),
+                    &[&kp_sender],
+                    Hash::new_from_array([7; 32]),
+                ),
+            ],
+            ramp_txs: vec![RampTx {
+                is_onramp: false,
+                user: pk_receiver,
+                amount: LAMPORTS_PER_SOL / 2,
+            }],
+        }
     }
 }
 
