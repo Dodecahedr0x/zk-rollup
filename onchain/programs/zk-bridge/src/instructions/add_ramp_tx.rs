@@ -49,8 +49,6 @@ impl AddRampTx<'_> {
             });
         }
 
-        msg!("args.amount: {}", args.amount);
-
         if args.is_onramp {
             ctx.accounts.platform.deposit += args.amount;
 

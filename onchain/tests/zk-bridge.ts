@@ -1,23 +1,17 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { ZkBridge } from "../target/types/zk_bridge";
+import kpAccount from "./keypairAccount.json";
 import kpSender from "./keypairSender.json";
 import kpReceiver from "./keypairReceiver.json";
-import * as fs from "fs";
+import fs from "fs";
 import * as borsh from "borsh";
-
-// Define the structure of OnChainProof in TypeScript
-// class OnChainProof {
-//   publicValues: Uint8Array;
-//   proof: Uint8Array;
-
-//   static schema: borsh.Schema = {
-//     struct: {
-//       publicValues: { array: { type: "u8" } },
-//       proof: { array: { type: "u8" } },
-//     },
-//   };
-// }
+import {
+  OnChainProof,
+  PLATFORM_SEED_PREFIX,
+  RAMP_SEED_PREFIX,
+  uploadCommit,
+} from "./utils";
 
 describe("zk-bridge", () => {
   // Configure the client to use the local cluster.
@@ -33,34 +27,23 @@ describe("zk-bridge", () => {
   const receiverKeypair = anchor.web3.Keypair.fromSecretKey(
     Uint8Array.from(Buffer.from(kpReceiver))
   );
+  const step1Proof = new Uint8Array(
+    fs.readFileSync("../script/onchain-proof.bin")
+  );
+  const step2Proof = new Uint8Array(
+    fs.readFileSync("../script/onchain-proof.bin")
+  );
 
-  const PLATFORM_SEED_PREFIX = getConstant(program.idl, "platformSeedPrefix");
-  const COMMIT_SEED_PREFIX = getConstant(program.idl, "commitSeedPrefix");
-  const RAMP_SEED_PREFIX = getConstant(program.idl, "rampSeedPrefix");
+  const onchainProof1 = borsh.deserialize(
+    OnChainProof.schema,
+    fs.readFileSync("../script/onchain-proof.bin")
+  ) as OnChainProof;
+  const onchainProof2 = borsh.deserialize(
+    OnChainProof.schema,
+    fs.readFileSync("../script/onchain-proof.bin")
+  ) as OnChainProof;
 
-  // Read the file containing the serialized data
-  let filePath = "../script/onchain-commit.bin";
-  const commitData = Uint8Array.from(fs.readFileSync(filePath));
-  filePath = "../script/onchain-proof.bin";
-  const proofData = Uint8Array.from(fs.readFileSync(filePath));
-
-  // console.log("Commit Data Length:", commitData.length);
-  // console.log("Commit Data:", commitData);
-  // console.log("File Data Length:", proof.length);
-  // console.log("File Data:", proof);
-
-  // // Deserialize the data using borsh
-  // const onchainProof = borsh.deserialize(
-  //   OnChainProof.schema,
-  //   fileData
-  // ) as OnChainProof;
-  // // const onchainProof = borsh.deserialize;
-
-  // // console.log("OnChainProof:", onchainProof);
-  // console.log("Public Values Length:", onchainProof.publicValues.length);
-  // console.log("Proof Length:", onchainProof.proof.length);
-
-  it("It works!", async () => {
+  it("works end to end!", async () => {
     const platformId = anchor.web3.PublicKey.unique();
     const [platformKey, _platformBump] =
       anchor.web3.PublicKey.findProgramAddressSync(
@@ -75,12 +58,43 @@ describe("zk-bridge", () => {
       ],
       program.programId
     );
+    const [receiverRampKey, _receiveirRampBump] =
+      anchor.web3.PublicKey.findProgramAddressSync(
+        [
+          Buffer.from(RAMP_SEED_PREFIX),
+          platformId.toBuffer(),
+          receiverKeypair.publicKey.toBuffer(),
+        ],
+        program.programId
+      );
 
     await provider.connection.confirmTransaction(
       await provider.connection.requestAirdrop(
         senderKeypair.publicKey,
         10 * anchor.web3.LAMPORTS_PER_SOL
       )
+    );
+    await provider.connection.confirmTransaction(
+      await provider.connection.requestAirdrop(
+        receiverKeypair.publicKey,
+        10 * anchor.web3.LAMPORTS_PER_SOL
+      )
+    );
+    console.log(
+      "\x1b[32m%s\x1b[0m",
+      "✔",
+      "Airdropped 10 SOL to the sender and receiver"
+    );
+    console.log(
+      "Current sender balance: ",
+      (await provider.connection.getBalance(senderKeypair.publicKey)) /
+        anchor.web3.LAMPORTS_PER_SOL
+    );
+    console.log(
+      "Current receiver balance: ",
+      (await provider.connection.getBalance(receiverKeypair.publicKey)) /
+        anchor.web3.LAMPORTS_PER_SOL,
+      "\n"
     );
 
     await program.methods
@@ -95,6 +109,22 @@ describe("zk-bridge", () => {
       })
       .signers([senderKeypair])
       .rpc();
+    console.log(
+      "\x1b[32m%s\x1b[0m",
+      "✔",
+      "Sender initialized the rollup platform"
+    );
+    console.log(
+      "Current sender balance: ",
+      (await provider.connection.getBalance(senderKeypair.publicKey)) /
+        anchor.web3.LAMPORTS_PER_SOL
+    );
+    console.log(
+      "Current receiver balance: ",
+      (await provider.connection.getBalance(receiverKeypair.publicKey)) /
+        anchor.web3.LAMPORTS_PER_SOL,
+      "\n"
+    );
 
     await program.methods
       .addRampTx({
@@ -109,49 +139,66 @@ describe("zk-bridge", () => {
       })
       .signers([senderKeypair])
       .rpc();
+    console.log(
+      "\x1b[32m%s\x1b[0m",
+      "✔",
+      "Sender queued 1 SOL to be sent to the rollup"
+    );
+    console.log(
+      "Current sender balance: ",
+      (await provider.connection.getBalance(senderKeypair.publicKey)) /
+        anchor.web3.LAMPORTS_PER_SOL
+    );
+    console.log(
+      "Current receiver balance: ",
+      (await provider.connection.getBalance(receiverKeypair.publicKey)) /
+        anchor.web3.LAMPORTS_PER_SOL,
+      "\n"
+    );
 
-    // Upload commit
-    const [commitKey, _commitBump] =
-      anchor.web3.PublicKey.findProgramAddressSync(
-        [
-          Buffer.from(COMMIT_SEED_PREFIX),
-          platformId.toBuffer(),
-          senderKeypair.publicKey.toBuffer(),
-        ],
-        program.programId
-      );
+    // This is hardcoded in the proofs of the test
+    console.log(
+      "\x1b[32m%s\x1b[0m",
+      "✔",
+      "Sender sent a Counter program TX on the rollup"
+    );
+    console.log(
+      "\x1b[32m%s\x1b[0m",
+      "✔",
+      "Sender sent a 0.5 SOL to the receiver"
+    );
 
-    let dataLeft = commitData;
-
-    let offset = 0;
-    while (dataLeft.length > 0) {
-      console.log(`uploading`);
-      const size = Math.min(dataLeft.length, 800);
-      await program.methods
-        .uploadCommit({
-          commitSize: new anchor.BN(commitData.length),
-          offset: new anchor.BN(offset),
-          commitData: Buffer.from(dataLeft.subarray(0, size)),
-        })
-        .accountsPartial({
-          prover: senderKeypair.publicKey,
-          commit: commitKey,
-          platform: platformKey,
-        })
-        .signers([senderKeypair])
-        .rpc();
-
-      dataLeft = dataLeft.subarray(size);
-      offset += size;
-    }
+    // STEP 1: Onramp + Counter TX + Transfer
+    const commit1Key = await uploadCommit({
+      onchainProof: onchainProof1,
+      senderKeypair,
+      program,
+      platformId,
+    });
+    console.log(
+      "\x1b[32m%s\x1b[0m",
+      "✔",
+      "Uploaded the commit for the onramp, counter tx and transfer"
+    );
+    console.log(
+      "Current sender balance: ",
+      (await provider.connection.getBalance(senderKeypair.publicKey)) /
+        anchor.web3.LAMPORTS_PER_SOL
+    );
+    console.log(
+      "Current receiver balance: ",
+      (await provider.connection.getBalance(receiverKeypair.publicKey)) /
+        anchor.web3.LAMPORTS_PER_SOL,
+      "\n"
+    );
 
     console.log(`proving`);
 
     await program.methods
-      .prove(Buffer.from(proofData))
+      .prove(Buffer.from(onchainProof2.proof))
       .accountsPartial({
         prover: senderKeypair.publicKey,
-        commit: commitKey,
+        commit: commit1Key,
         platform: platformKey,
       })
       .preInstructions([
@@ -160,15 +207,122 @@ describe("zk-bridge", () => {
         }),
       ])
       .signers([senderKeypair])
+      .rpc({ skipPreflight: false });
+    console.log(
+      "\x1b[32m%s\x1b[0m",
+      "✔",
+      "Successfully verified the proof on Solana"
+    );
+    console.log(
+      "Current sender balance: ",
+      (await provider.connection.getBalance(senderKeypair.publicKey)) /
+        anchor.web3.LAMPORTS_PER_SOL
+    );
+    console.log(
+      "Current receiver balance: ",
+      (await provider.connection.getBalance(receiverKeypair.publicKey)) /
+        anchor.web3.LAMPORTS_PER_SOL,
+      "\n"
+    );
+
+    // STEP 2: Offramp
+    await program.methods
+      .addRampTx({
+        isOnramp: false,
+        amount: new anchor.BN(0.5 * anchor.web3.LAMPORTS_PER_SOL),
+      })
+      .accountsPartial({
+        ramper: receiverKeypair.publicKey,
+        ramp: receiverRampKey,
+        platform: platformKey,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .signers([receiverKeypair])
       .rpc();
+    console.log(
+      "\x1b[32m%s\x1b[0m",
+      "✔",
+      "Receiver queued 0.5 SOL to be withdrawn from the rollup"
+    );
+    console.log(
+      "Current sender balance: ",
+      (await provider.connection.getBalance(senderKeypair.publicKey)) /
+        anchor.web3.LAMPORTS_PER_SOL
+    );
+    console.log(
+      "Current receiver balance: ",
+      (await provider.connection.getBalance(receiverKeypair.publicKey)) /
+        anchor.web3.LAMPORTS_PER_SOL,
+      "\n"
+    );
+
+    const commit2Key = await uploadCommit({
+      onchainProof: onchainProof2,
+      senderKeypair,
+      program,
+      platformId,
+    });
+    console.log(
+      "\x1b[32m%s\x1b[0m",
+      "✔",
+      "Uploaded the commit for the offramp"
+    );
+
+    await program.methods
+      .prove(Buffer.from(onchainProof2.proof))
+      .accountsPartial({
+        prover: senderKeypair.publicKey,
+        commit: commit2Key,
+        platform: platformKey,
+      })
+      .preInstructions([
+        anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({
+          units: 1_400_000,
+        }),
+      ])
+      .signers([senderKeypair])
+      .rpc({ skipPreflight: false });
+    console.log(
+      "\x1b[32m%s\x1b[0m",
+      "✔",
+      "Successfully verified the proof on Solana"
+    );
+    console.log(
+      "Current sender balance: ",
+      (await provider.connection.getBalance(senderKeypair.publicKey)) /
+        anchor.web3.LAMPORTS_PER_SOL
+    );
+    console.log(
+      "Current receiver balance: ",
+      (await provider.connection.getBalance(receiverKeypair.publicKey)) /
+        anchor.web3.LAMPORTS_PER_SOL,
+      "\n"
+    );
+
+    await program.methods
+      .withdraw({ amount: new anchor.BN(0.5 * anchor.web3.LAMPORTS_PER_SOL) })
+      .accountsPartial({
+        ramper: receiverKeypair.publicKey,
+        platform: platformKey,
+        ramp: receiverRampKey,
+      })
+      .signers([receiverKeypair])
+      .rpc();
+    console.log(
+      "\x1b[32m%s\x1b[0m",
+      "✔",
+      "Receiver withdrew 0.5 SOL on Solana"
+    );
+
+    console.log(
+      "Final sender balance: ",
+      (await provider.connection.getBalance(senderKeypair.publicKey)) /
+        anchor.web3.LAMPORTS_PER_SOL
+    );
+    console.log(
+      "Final receiver balance: ",
+      (await provider.connection.getBalance(receiverKeypair.publicKey)) /
+        anchor.web3.LAMPORTS_PER_SOL
+    );
   });
 });
-
-function getConstant(
-  idl: ZkBridge,
-  name: ZkBridge["constants"][number]["name"]
-): ArrayBuffer {
-  return JSON.parse(
-    idl.constants.find((constant) => constant.name === name).value
-  );
-}
