@@ -31,8 +31,14 @@ pub struct RollupState(pub Vec<(Pubkey, Account)>);
 
 pub type ExecutionOutput = [u8; 32];
 
+// #[derive(Deserialize, Serialize, Debug)]
+// pub struct CommittedValues {
+//     pub input: ExecutionInput,
+//     pub output: ExecutionOutput,
+// }
 #[derive(Deserialize, Serialize, Debug)]
 pub struct CommittedValues {
-    pub input: ExecutionInput,
-    pub output: ExecutionOutput,
+    pub ramp_txs: Vec<RampTx>,
+    pub initial_hash: ExecutionOutput,
+    pub final_hash: ExecutionOutput,
 }

@@ -12,6 +12,8 @@ import {
   RAMP_SEED_PREFIX,
   uploadCommit,
 } from "./utils";
+import { bs58 } from "@coral-xyz/anchor/dist/cjs/utils/bytes";
+
 
 describe("zk-bridge", () => {
   // Configure the client to use the local cluster.
@@ -20,7 +22,7 @@ describe("zk-bridge", () => {
 
   const program = anchor.workspace.ZkBridge as Program<ZkBridge>;
 
-  const initialStateHash = "EukGGeg2sN2tETkZQP4kPTQxJQU859P8j5JGNLBKSt87";
+  const initialStateHash = "Txcya3VW3mYhanWabGAFVDbywFLiAFhD3ZGgt7GK8PP";
   const senderKeypair = anchor.web3.Keypair.fromSecretKey(
     Uint8Array.from(Buffer.from(kpSender))
   );
@@ -28,20 +30,18 @@ describe("zk-bridge", () => {
     Uint8Array.from(Buffer.from(kpReceiver))
   );
   const step1Proof = new Uint8Array(
-    fs.readFileSync("../script/onchain-proof.bin")
+    fs.readFileSync("../script/onchain-proof-0.bin")
   );
   const step2Proof = new Uint8Array(
-    fs.readFileSync("../script/onchain-proof.bin")
+    fs.readFileSync("../script/onchain-proof-1.bin")
   );
-
-  const onchainProof1 = borsh.deserialize(
-    OnChainProof.schema,
-    fs.readFileSync("../script/onchain-proof.bin")
-  ) as OnChainProof;
-  const onchainProof2 = borsh.deserialize(
-    OnChainProof.schema,
-    fs.readFileSync("../script/onchain-proof.bin")
-  ) as OnChainProof;
+  
+  const step1CommitedData = new Uint8Array(
+    fs.readFileSync("../script/onchain-commit-0.bin")
+  );
+  const step2CommitedData = new Uint8Array(
+    fs.readFileSync("../script/onchain-commit-1.bin")
+  );
 
   it("works end to end!", async () => {
     const platformId = anchor.web3.PublicKey.unique();
@@ -100,7 +100,7 @@ describe("zk-bridge", () => {
     await program.methods
       .createPlatform({
         id: platformId,
-        initialStateHash: Array.from(Buffer.from(initialStateHash)),
+        initialStateHash: Array.from(bs58.decode(initialStateHash)),
       })
       .accountsPartial({
         sequencer: senderKeypair.publicKey,
@@ -170,7 +170,7 @@ describe("zk-bridge", () => {
 
     // STEP 1: Onramp + Counter TX + Transfer
     const commit1Key = await uploadCommit({
-      onchainProof: onchainProof1,
+      onchainPublicValues: step1CommitedData,
       senderKeypair,
       program,
       platformId,
@@ -195,7 +195,7 @@ describe("zk-bridge", () => {
     console.log(`proving`);
 
     await program.methods
-      .prove(Buffer.from(onchainProof2.proof))
+      .prove(Buffer.from(step1Proof))
       .accountsPartial({
         prover: senderKeypair.publicKey,
         commit: commit1Key,
@@ -257,7 +257,8 @@ describe("zk-bridge", () => {
     );
 
     const commit2Key = await uploadCommit({
-      onchainProof: onchainProof2,
+      // onchainProof: onchainProof2,
+      onchainPublicValues: step2CommitedData,
       senderKeypair,
       program,
       platformId,
@@ -269,7 +270,7 @@ describe("zk-bridge", () => {
     );
 
     await program.methods
-      .prove(Buffer.from(onchainProof2.proof))
+      .prove(Buffer.from(step2Proof))
       .accountsPartial({
         prover: senderKeypair.publicKey,
         commit: commit2Key,
