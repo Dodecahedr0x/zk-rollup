@@ -1,5 +1,4 @@
 use clap::Parser;
-use onchain_types::CommittedValues;
 use solana_sdk::{
     account::{Account, AccountSharedData, WritableAccount},
     hash::Hash,
@@ -19,7 +18,7 @@ use std::{
     io::{Read, Write},
     vec,
 };
-use svm_runner_types::{hash_state, ExecutionInput, RampTx, RollupState};
+use svm_runner_types::{hash_state, CommittedValues, ExecutionInput, RampTx, RollupState};
 
 pub const ZK_SVM_ELF: &[u8] = include_elf!("zk-svm-program");
 
@@ -38,13 +37,13 @@ struct Args {
     #[clap(long, default_value = "0")]
     step: u8,
 
-    #[clap(long, short, default_value = "./sp1-proof.bin")]
+    #[clap(long, default_value = "./sp1-proof.bin")]
     sp1_output_path: String,
 
-    #[clap(long, short, default_value = "./onchain-commit.bin")]
+    #[clap(long, default_value = "./onchain-commit.bin")]
     onchain_commit_path: String,
 
-    #[clap(long, short, default_value = "./onchain-proof.bin")]
+    #[clap(long, default_value = "./onchain-proof.bin")]
     onchain_proof_path: String,
 }
 
@@ -56,6 +55,11 @@ struct Args {
 
 fn main() {
     let args = Args::parse();
+
+    // paths
+    let sp1_output_path = format!("./sp1-proof-{}.bin", args.step);
+    let onchain_commit_path = format!("./onchain-commit-{}.bin", args.step);
+    let onchain_proof_path = format!("./onchain-proof-{}.bin", args.step);
 
     if args.execute == args.prove {
         eprintln!("Error: You must specify either --execute or --prove");
@@ -77,8 +81,9 @@ fn main() {
     stdin.write(&input);
 
     if args.execute {
+        println!("Initial state hash: {}", hash_state(input.accounts));
         // Execute the program
-        let (output, report) = client.execute(ZK_SVM_ELF, &stdin).run().unwrap();
+        let (mut output, report) = client.execute(ZK_SVM_ELF, &stdin).run().unwrap();
         println!("Program executed successfully.");
 
         // println!("output buffer: {}", output.raw());
@@ -86,9 +91,13 @@ fn main() {
         // Record the number of cycles executed.
         println!("Number of cycles: {}", report.total_instruction_count());
 
-        let mut file =
-            std::fs::File::create(args.onchain_commit_path).expect("failed to open file");
-        file.write_all(&output.to_vec()).unwrap();
+        // let mut file = std::fs::File::create(onchain_commit_path).expect("failed to open file");
+        // file.write_all(&output.to_vec()).unwrap();
+
+        let commit: CommittedValues = output.read();
+
+        println!("Initial state hash: {:?}", commit.initial_hash);
+        println!("Final state hash: {:?}", commit.final_hash);
 
         // let data: CommittedValues = output.read();
         // println!("Committed values: {:?}", data);
@@ -105,15 +114,12 @@ fn main() {
             .groth16()
             .run()
             .expect("failed to generate proof");
-        proof
-            .save(args.sp1_output_path)
-            .expect("failed to save proof");
+        proof.save(sp1_output_path).expect("failed to save proof");
 
-        let mut file =
-            std::fs::File::create(args.onchain_commit_path).expect("failed to open file");
+        let mut file = std::fs::File::create(onchain_commit_path).expect("failed to open file");
         file.write_all(&proof.public_values.to_vec()).unwrap();
 
-        let mut file = std::fs::File::create(args.onchain_proof_path).expect("failed to open file");
+        let mut file = std::fs::File::create(onchain_proof_path).expect("failed to open file");
         file.write_all(&proof.bytes()).unwrap();
 
         // let onchain_proof = OnChainProof {
@@ -132,7 +138,9 @@ fn main() {
         //     .unwrap();
 
         let commit: CommittedValues = proof.public_values.read();
-        println!("Final state hash: {:?}", commit.output);
+        println!("Initial state hash: {:?}", commit.initial_hash);
+        println!("Final state hash: {:?}", commit.final_hash);
+        // println!("Final state hash: {:?}", commit.output);
 
         println!("Successfully generated proof!");
 
@@ -153,7 +161,8 @@ fn create_test_input(step: u8) -> ExecutionInput {
     let pk_receiver = kp_receiver.pubkey();
     let pk_sender = kp_sender.pubkey();
 
-    let counter_program_id = Keypair::new().pubkey();
+    // let counter_program_id = Keypair::new().pubkey();
+    let counter_program_id = Pubkey::from_str_const("9HsgWyiHfsN3zqcT7s7zx2jiXCtGQ5XpGcamRXnHph5h");
 
     let kp_account_bytes: Vec<u8> =
         serde_json::from_slice(include_bytes!("../../onchain/tests/keypairAccount.json")).unwrap();
@@ -171,9 +180,12 @@ fn create_test_input(step: u8) -> ExecutionInput {
         account_size,
         &loader_v4::id(),
     );
+    program_account.set_executable(true);
+
     let state = get_state_mut(program_account.data_as_mut_slice()).unwrap();
     state.slot = 0;
-    state.authority_address_or_next_version = Pubkey::new_unique();
+    // state.authority_address_or_next_version = Pubkey::new_unique();
+    state.authority_address_or_next_version = Pubkey::from_str_const("6SvhJjv999mx67fw1f4UZXMzaodyZ2YgRDb8imxxtS1J");
     state.status = LoaderV4Status::Deployed;
     program_account.data_as_mut_slice()[LoaderV4State::program_data_offset()..]
         .copy_from_slice(&elf_bytes);
@@ -254,7 +266,7 @@ fn create_test_input(step: u8) -> ExecutionInput {
                         data: vec![],
                         owner: system_program::id(),
                         executable: false,
-                        rent_epoch: 0,
+                        rent_epoch: 18446744073709551615, // ?
                     }
                     .into(),
                 ),
@@ -274,7 +286,7 @@ fn create_test_input(step: u8) -> ExecutionInput {
                     pk_counter,
                     Account {
                         lamports: 100000,
-                        data: vec![0, 0, 0, 0],
+                        data: vec![1, 0, 0, 0],
                         owner: counter_program_id,
                         executable: false,
                         rent_epoch: 0,
@@ -283,16 +295,6 @@ fn create_test_input(step: u8) -> ExecutionInput {
                 ),
             ]),
             txs: vec![
-                Transaction::new_signed_with_payer(
-                    &[system_instruction::transfer(
-                        &pk_sender,
-                        &pk_receiver,
-                        LAMPORTS_PER_SOL,
-                    )],
-                    Some(&pk_sender),
-                    &[&kp_sender],
-                    Hash::new_from_array([7; 32]),
-                ),
                 Transaction::new_signed_with_payer(
                     &[Instruction {
                         program_id: counter_program_id,

@@ -20,13 +20,15 @@ export class OnChainProof {
 }
 
 interface UploadCommitParams {
-  onchainProof: OnChainProof;
+  // onchainProof: OnChainProof;
+  onchainPublicValues: Uint8Array;
   program: anchor.Program<ZkBridge>;
   platformId: anchor.web3.PublicKey;
   senderKeypair: anchor.web3.Keypair;
 }
 export async function uploadCommit({
-  onchainProof,
+  // onchainProof,
+  onchainPublicValues,
   program,
   platformId,
   senderKeypair,
@@ -47,29 +49,27 @@ export async function uploadCommit({
     program.programId
   );
 
-  // let dataLeft = onchainProof.publicValues;
-  // CHECK: subarray doesn't work with out this, need fix
-  let dataLeft = new Uint8Array(onchainProof.publicValues.length);
-  for (let i = 0; i < onchainProof.publicValues.length; i++) {
-    dataLeft[i] = onchainProof.publicValues[i];
-  }
+  let dataLeft = new Uint8Array(onchainPublicValues.length);
+  for (let i = 0; i < onchainPublicValues.length; i++) {
+		dataLeft[i] = onchainPublicValues[i];
+	}
 
   let offset = 0;
   while (dataLeft.length > 0) {
     const size = Math.min(dataLeft.length, 800);
     await program.methods
-      .uploadCommit({
-        commitSize: new anchor.BN(onchainProof.publicValues.length),
-        offset: new anchor.BN(offset),
-        commitData: Buffer.from(dataLeft.subarray(0, size)),
-      })
-      .accountsPartial({
-        prover: senderKeypair.publicKey,
-        commit: commitKey,
-        platform: platformKey,
-      })
-      .signers([senderKeypair])
-      .rpc();
+			.uploadCommit({
+				commitSize: new anchor.BN(onchainPublicValues.length),
+				offset: new anchor.BN(offset),
+				commitData: Buffer.from(dataLeft.subarray(0, size)),
+			})
+			.accountsPartial({
+				prover: senderKeypair.publicKey,
+				commit: commitKey,
+				platform: platformKey,
+			})
+			.signers([senderKeypair])
+			.rpc();
 
     dataLeft = dataLeft.subarray(size);
     offset += size;

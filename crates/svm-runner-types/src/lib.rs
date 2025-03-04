@@ -35,6 +35,14 @@ pub fn hash_state(output: RollupState) -> Hash {
     hashv(&[data.as_slice()])
 }
 
+#[derive(Deserialize, Serialize, Debug)]
+pub struct CommittedValues {
+    pub ramp_txs: Vec<RampTx>,
+    pub initial_hash: ExecutionOutput,
+    pub final_hash: ExecutionOutput,
+}
+
+
 impl Into<onchain_types::RollupState> for RollupState {
     fn into(self) -> onchain_types::RollupState {
         let data = self

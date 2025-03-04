@@ -13,7 +13,9 @@ use crate::state::*;
 /// let vkey_hash = vk.bytes32();
 /// ```
 const ZK_BRIDGE_VKEY_HASH: &str =
-    "0x00e6c119f877ce29467d89e62b47f983177b85fddbd90ce988b6303b2f5d7f9b";
+    "0x00da272a239c9508beb795b0cb53625c3ebdc9f6a4fe14670bf54da463ace221";
+// "0x00e6c119f877ce29467d89e62b47f983177b85fddbd90ce988b6303b2f5d7f9b";
+// "0x006045c84d55e1cf57bbfff0c0986db74b0c201c211cef0b20f09fdfde75fe38";
 // "0x00508568011475c128053532cd7c60b9791f6edd5437e094c038a7445fba383d";
 
 // #[derive(AnchorDeserialize, AnchorSerialize)]
@@ -61,7 +63,8 @@ impl Prove<'_> {
 
         // Check that ramps txs match the ones in the platform
         // Currently only check the count, could be improved to a hash of all txs
-        if committed_values.input.ramp_txs.len() != ctx.accounts.platform.ramp_txs.len() {
+        // if committed_values.input.ramp_txs.len() != ctx.accounts.platform.ramp_txs.len() {
+        if committed_values.ramp_txs.len() != ctx.accounts.platform.ramp_txs.len() {
             return Err(PlatformError::MissingRampTxs.into());
         }
 
@@ -70,7 +73,7 @@ impl Prove<'_> {
 
         // This can currently brick the platform, there should be a limit in number of ramp txs
         for ramp_tx in committed_values
-            .input
+            // .input
             .ramp_txs
             .iter()
             .filter(|ramp_tx| !ramp_tx.is_onramp)
@@ -78,8 +81,17 @@ impl Prove<'_> {
             ctx.accounts.platform.withdraw += ramp_tx.amount;
         }
 
+        // confirm initial state hash == final state hash of the last block
+        require!(
+            ctx.accounts
+                .platform
+                .last_state_hash
+                .eq(&committed_values.initial_hash),
+            PlatformError::InvalidStateHash
+        );
+
         // Update the platform state
-        ctx.accounts.platform.last_state_hash = committed_values.output;
+        ctx.accounts.platform.last_state_hash = committed_values.final_hash;
 
         Ok(())
     }
