@@ -1,5 +1,4 @@
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::hash::Hash;
 use onchain_types::CommittedValues;
 
 use crate::constants::*;
@@ -81,11 +80,6 @@ impl Prove<'_> {
         {
             ctx.accounts.platform.withdraw += ramp_tx.amount;
         }
-
-        println!(
-            "last hash: {}",
-            Hash::from(ctx.accounts.platform.last_state_hash)
-        );
 
         // confirm initial state hash == final state hash of the last block
         require!(
